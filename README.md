@@ -211,12 +211,6 @@ source .venv/bin/activate  # Linux/Mac
 
 ***
 
-## 📄 License
-
-This project is open source and available under the [MIT License](LICENSE).
-
-***
-
 ## 🆘 Support
 
 - **Issues**: Report bugs via GitHub Issues
@@ -228,13 +222,3 @@ This project is open source and available under the [MIT License](LICENSE).
 **Made with ❤️ and 🔐 for secure password management**
 
 *Last Updated: August 24, 2025*
-
-[1](https://docs.python-guide.org/writing/structure/)
-[2](https://discuss.python.org/t/python-project-structure/36119)
-[3](https://dagster.io/blog/python-project-best-practices)
-[4](https://swimm.io/learn/code-documentation/documentation-in-python-methods-and-best-practices)
-[5](https://www.docuwriter.ai/posts/python-documentation-best-practices-guide)
-[6](https://realpython.com/python-project-documentation-with-mkdocs/)
-[7](https://testdriven.io/blog/documenting-python/)
-[8](https://packaging.python.org/tutorials/packaging-projects/)
-[9](https://www.clariontech.com/blog/python-development-practices)
