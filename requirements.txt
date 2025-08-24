@@ -1,0 +1,32 @@
+# GUI Framework
+PySide6
+
+# Password Hashing and Security
+bcrypt
+
+# Additional Security Utilities (optional but recommended)
+cryptography
+
+# Database (SQLite is built into Python, but these help with advanced features)
+# Note: sqlite3 is included with Python standard library
+
+# Clipboard Operations (for copying generated passwords)
+pyperclip
+
+# Input Validation and Data Handling
+email-validator
+
+# Logging and Debugging (optional)
+colorlog
+
+# Development and Testing (optional - uncomment if needed)
+# pytest==7.4.3
+# pytest-qt==4.2.0
+# black==23.11.0
+# flake8==6.1.0
+
+# System Integration
+psutil
+
+# Date and Time Utilities
+python-dateutil
