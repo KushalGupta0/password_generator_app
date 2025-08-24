@@ -369,7 +369,7 @@ class MainDashboard(QMainWindow):
             }
             QFrame:hover {
                 border: 1px solid #2a82da;
-                box-shadow: 0px 2px 4px rgba(0,0,0,0.1);
+                background-color: #f8f9fa;
             }
         """)
 
