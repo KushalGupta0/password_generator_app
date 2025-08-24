@@ -82,4 +82,29 @@ class LightThemeManager:
             background: #ffffff;
             border-top: 2px solid #2a82da;
         }
+        /* ADD THIS CHECKBOX STYLING */
+        QCheckBox::indicator {
+            width: 18px;
+            height: 18px;
+        }
+        QCheckBox::indicator:unchecked {
+            border: 2px solid #2a82da;
+            background-color: white;
+            border-radius: 2px;
+        }
+        QCheckBox::indicator:checked {
+            border: 2px solid #2a82da;
+            background-color: #2a82da;
+            border-radius: 2px;
+            image: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTQiIGhlaWdodD0iMTQiIHZpZXdCb3g9IjAgMCAxNCAxNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTMuNSA3TDYgOS41TDEwLjUgNSIgc3Ryb2tlPSJ3aGl0ZSIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz4KPC9zdmc+);
+        }
+        QCheckBox::indicator:checked:hover {
+            background-color: #1e5ea8;
+            border: 2px solid #1e5ea8;
+        }
+        QCheckBox {
+            color: #000000;
+            font-size: 14px;
+            spacing: 8px;
+        }
         """

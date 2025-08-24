@@ -1,0 +1,65 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Virtual environment
+venv/
+env/
+.venv/
+.env/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage
+htmlcov/
+.tox/
+.nox/
+.coverage
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.pytest_cache/
+
+# IDE / Editor configs
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# System files
+.DS_Store
+Thumbs.db
+
+# SQLite database (if you store locally)
+*.db
+*.sqlite3
+
+# Logs and temp files
+*.log
+*.tmp
+
+# PyInstaller or cx_Freeze output
+*.spec
+
+# Jupyter notebooks (if any)
+.ipynb_checkpoints/
+
+# dotenv files (secrets)
+.env
+.env.*
+
+# Ignore compiled UI files if using Qt Designer
+*.ui.py
