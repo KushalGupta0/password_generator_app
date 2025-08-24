@@ -433,6 +433,23 @@ class AuthenticationManager:
             self.logger.error(f"Password change error for user {user_id}: {e}")
             return {'success': False, 'error': 'Password change failed'}
 
+    def get_user_password_for_encryption(self, user_id: int, provided_password: str) -> bool:
+        """Verify user's master password for encryption operations"""
+        try:
+            user_info = self.get_user_info(user_id)
+            if not user_info:
+                return False
+                
+            user_data = self.db_manager.get_user_by_username(user_info['username'])
+            if not user_data:
+                return False
+                
+            return verify_password(provided_password, user_data['hashed_password'])
+            
+        except Exception as e:
+            self.logger.error(f"Password verification failed: {e}")
+            return False
+
 
 # Authentication exception classes
 class AuthenticationError(Exception):

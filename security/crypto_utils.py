@@ -293,6 +293,68 @@ class CryptoManager:
                 return f"{years:,} years"
             else:
                 return f"{years} years"
+            
+    def encrypt_password(self, password: str, master_password: str) -> Dict[str, str]:
+        """Encrypt password using master password as key"""
+        try:
+            from cryptography.fernet import Fernet
+            from cryptography.hazmat.primitives import hashes
+            from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+            import base64
+            import os
+            
+            # Generate salt
+            salt = os.urandom(16)
+            
+            # Create key from master password
+            kdf = PBKDF2HMAC(
+                algorithm=hashes.SHA256(),
+                length=32,
+                salt=salt,
+                iterations=100000,
+            )
+            key = base64.urlsafe_b64encode(kdf.derive(master_password.encode()))
+            f = Fernet(key)
+            
+            # Encrypt password
+            encrypted = f.encrypt(password.encode())
+            
+            return {
+                'encrypted_password': base64.b64encode(encrypted).decode(),
+                'salt': base64.b64encode(salt).decode()
+            }
+            
+        except Exception as e:
+            raise SecurityError(f"Password encryption failed: {e}")
+
+    def decrypt_password(self, encrypted_password: str, salt: str, master_password: str) -> str:
+        """Decrypt password using master password"""
+        try:
+            from cryptography.fernet import Fernet
+            from cryptography.hazmat.primitives import hashes
+            from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+            import base64
+            
+            # Recreate key from master password and salt
+            salt_bytes = base64.b64decode(salt.encode())
+            kdf = PBKDF2HMAC(
+                algorithm=hashes.SHA256(),
+                length=32,
+                salt=salt_bytes,
+                iterations=100000,
+            )
+            key = base64.urlsafe_b64encode(kdf.derive(master_password.encode()))
+            f = Fernet(key)
+            
+            # Decrypt password
+            encrypted_bytes = base64.b64decode(encrypted_password.encode())
+            decrypted = f.decrypt(encrypted_bytes)
+            
+            return decrypted.decode()
+            
+        except Exception as e:
+            raise SecurityError(f"Password decryption failed: {e}")
+
 
 
 class SecurityError(Exception):

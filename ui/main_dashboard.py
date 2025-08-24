@@ -1,12 +1,12 @@
 """
 Main Dashboard UI
-Provides password generation & storage view with scrollable vault and logout functionality
+Provides password generation & storage view with scrollable vault and password viewing
 """
 
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QCheckBox, QSpinBox,
-    QTextEdit, QScrollArea, QFrame, QMessageBox
+    QTextEdit, QScrollArea, QFrame, QMessageBox, QInputDialog
 )
 from PySide6.QtCore import Qt, Signal
 
@@ -14,7 +14,7 @@ from .theme_manager import LightThemeManager
 
 
 class MainDashboard(QMainWindow):
-    """Main application dashboard (after login)"""
+    """Main application dashboard (after login) with password viewing capability"""
 
     # Signal emitted when user requests logout
     logout_requested = Signal()
@@ -190,6 +190,23 @@ class MainDashboard(QMainWindow):
         self.generated_display.setStyleSheet("font-family: monospace; font-size: 12px;")
         layout.addWidget(self.generated_display)
 
+        # Copy to clipboard button
+        self.btn_copy = QPushButton("📋 Copy to Clipboard")
+        self.btn_copy.setFixedHeight(30)
+        self.btn_copy.setStyleSheet("""
+            QPushButton {
+                background-color: #6c757d;
+                color: white;
+                font-size: 12px;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #5a6268;
+            }
+        """)
+        self.btn_copy.clicked.connect(self._copy_to_clipboard)
+        layout.addWidget(self.btn_copy)
+
         # Save form section
         save_section = QLabel("💾 Save to Vault")
         save_section.setStyleSheet("font-size: 14px; font-weight: bold; margin-top: 15px;")
@@ -253,11 +270,23 @@ class MainDashboard(QMainWindow):
             if result['success']:
                 self.generated_password = result['password']
                 self.generated_display.setText(self.generated_password)
+                QMessageBox.information(self, "Password Generated", 
+                                      f"New password generated!\nStrength: {result.get('metadata', {}).get('strength_analysis', {}).get('strength', 'Good')}")
             else:
                 QMessageBox.critical(self, "Generation Error", 
                                    result.get("error", "Password generation failed"))
         else:
             QMessageBox.critical(self, "Error", "Password generator not available")
+
+    def _copy_to_clipboard(self):
+        """Copy generated password to clipboard"""
+        if hasattr(self, 'generated_password') and self.generated_password:
+            from PySide6.QtWidgets import QApplication
+            clipboard = QApplication.clipboard()
+            clipboard.setText(self.generated_password)
+            QMessageBox.information(self, "Copied", "Password copied to clipboard!")
+        else:
+            QMessageBox.warning(self, "No Password", "Generate a password first.")
 
     def _handle_save(self):
         """Save generated password to vault"""
@@ -292,6 +321,7 @@ class MainDashboard(QMainWindow):
             )
             if result.get("success"):
                 QMessageBox.information(self, "Success", "Password saved to vault successfully!")
+                
                 # Clear form fields
                 self.save_username.clear()
                 self.save_site.clear()
@@ -299,6 +329,7 @@ class MainDashboard(QMainWindow):
                 self.generated_display.clear()
                 if hasattr(self, 'generated_password'):
                     delattr(self, 'generated_password')
+                
                 # Refresh the password list
                 self._refresh_passwords_list()
             else:
@@ -314,9 +345,51 @@ class MainDashboard(QMainWindow):
         layout = QVBoxLayout(wrapper)
         layout.setContentsMargins(15, 15, 15, 15)
 
+        # Header with title and refresh button
+        header_layout = QHBoxLayout()
         title = QLabel("🗄️ Password Vault")
-        title.setStyleSheet("font-size: 16px; font-weight: bold; margin-bottom: 10px;")
-        layout.addWidget(title)
+        title.setStyleSheet("font-size: 16px; font-weight: bold;")
+        header_layout.addWidget(title)
+        
+        header_layout.addStretch()
+        
+        # Refresh button
+        refresh_btn = QPushButton("🔄 Refresh")
+        refresh_btn.setFixedSize(80, 30)
+        refresh_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #6c757d;
+                color: white;
+                font-size: 11px;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #5a6268;
+            }
+        """)
+        refresh_btn.clicked.connect(self._refresh_passwords_list)
+        header_layout.addWidget(refresh_btn)
+        
+        layout.addLayout(header_layout)
+
+        # Search functionality
+        search_layout = QHBoxLayout()
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Search passwords...")
+        self.search_input.setFixedHeight(30)
+        search_layout.addWidget(self.search_input)
+        
+        search_btn = QPushButton("🔍")
+        search_btn.setFixedSize(30, 30)
+        search_btn.clicked.connect(self._search_passwords)
+        search_layout.addWidget(search_btn)
+        
+        clear_search_btn = QPushButton("✖")
+        clear_search_btn.setFixedSize(30, 30)
+        clear_search_btn.clicked.connect(self._clear_search)
+        search_layout.addWidget(clear_search_btn)
+        
+        layout.addLayout(search_layout)
 
         # Scroll area for password entries
         self.scroll = QScrollArea()
@@ -333,30 +406,53 @@ class MainDashboard(QMainWindow):
 
         return wrapper
 
+    def _search_passwords(self):
+        """Search passwords by keyword"""
+        keyword = self.search_input.text().strip()
+        if not keyword:
+            self._refresh_passwords_list()
+            return
+        
+        if self.storage:
+            result = self.storage.search_passwords(self.user_id, keyword)
+            if result.get("success"):
+                self._display_password_entries(result.get("results", []))
+            else:
+                QMessageBox.warning(self, "Search Error", "Failed to search passwords")
+
+    def _clear_search(self):
+        """Clear search and show all passwords"""
+        self.search_input.clear()
+        self._refresh_passwords_list()
+
     def _refresh_passwords_list(self):
         """Refresh displayed stored passwords metadata"""
+        if self.storage:
+            result = self.storage.get_user_passwords(self.user_id)
+            if result.get("success"):
+                entries = result.get("entries", [])
+                self._display_password_entries(entries)
+
+    def _display_password_entries(self, entries):
+        """Display password entries in the scroll area"""
         # Clear existing items
         for i in reversed(range(self.passwords_layout.count())):
             widget = self.passwords_layout.itemAt(i).widget()
             if widget:
                 widget.setParent(None)
 
-        if self.storage:
-            result = self.storage.get_user_passwords(self.user_id)
-            if result.get("success"):
-                entries = result.get("entries", [])
-                if entries:
-                    for entry in entries:
-                        self._add_password_widget(entry)
-                else:
-                    # Show empty state
-                    empty_label = QLabel("No passwords saved yet.\nGenerate and save your first password!")
-                    empty_label.setAlignment(Qt.AlignCenter)
-                    empty_label.setStyleSheet("color: #666666; font-style: italic; padding: 50px;")
-                    self.passwords_layout.addWidget(empty_label)
+        if entries:
+            for entry in entries:
+                self._add_password_widget(entry)
+        else:
+            # Show empty state
+            empty_label = QLabel("No passwords found.\nGenerate and save your first password!")
+            empty_label.setAlignment(Qt.AlignCenter)
+            empty_label.setStyleSheet("color: #666666; font-style: italic; padding: 50px;")
+            self.passwords_layout.addWidget(empty_label)
 
     def _add_password_widget(self, entry: dict):
-        """Add a single stored password metadata block"""
+        """Add a single stored password metadata block with view button"""
         frame = QFrame()
         frame.setFrameShape(QFrame.StyledPanel)
         frame.setStyleSheet("""
@@ -368,7 +464,7 @@ class MainDashboard(QMainWindow):
                 margin: 2px;
             }
             QFrame:hover {
-                border: 1px solid #2a82da;
+                border: 2px solid #2a82da;
                 background-color: #f8f9fa;
             }
         """)
@@ -399,8 +495,135 @@ class MainDashboard(QMainWindow):
             vbox.addWidget(notes_label)
 
         # Creation date
-        created_label = QLabel(f"⏱ Created: {entry['created_at'][:16]}")
+        created_label = QLabel(f"⏱ Created: {entry['created_at'][:16] if entry['created_at'] else 'Unknown'}")
         created_label.setStyleSheet("font-size: 11px; color: #999999;")
         vbox.addWidget(created_label)
 
+        # Buttons layout
+        button_layout = QHBoxLayout()
+        
+        # View password button
+        view_btn = QPushButton("👁 View Password")
+        view_btn.setFixedSize(120, 30)
+        view_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #17a2b8;
+                color: white;
+                border-radius: 4px;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #138496;
+            }
+        """)
+        view_btn.clicked.connect(lambda: self._view_password(entry['password_id']))
+        button_layout.addWidget(view_btn)
+
+        # Copy username button
+        copy_username_btn = QPushButton("📋 Copy Username")
+        copy_username_btn.setFixedSize(120, 30)
+        copy_username_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #28a745;
+                color: white;
+                border-radius: 4px;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #218838;
+            }
+        """)
+        copy_username_btn.clicked.connect(lambda: self._copy_username(entry['username_for_site']))
+        button_layout.addWidget(copy_username_btn)
+
+        # Delete button
+        delete_btn = QPushButton("🗑 Delete")
+        delete_btn.setFixedSize(80, 30)
+        delete_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #dc3545;
+                color: white;
+                border-radius: 4px;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #c82333;
+            }
+        """)
+        delete_btn.clicked.connect(lambda: self._delete_password(entry['password_id']))
+        button_layout.addWidget(delete_btn)
+
+        button_layout.addStretch()
+        vbox.addLayout(button_layout)
+
         self.passwords_layout.addWidget(frame)
+
+    # ======================= PASSWORD ACTIONS =======================
+
+    def _view_password(self, password_id: int):
+        """Show password viewing dialog with master password prompt"""
+        # Get master password
+        master_password, ok = QInputDialog.getText(
+            self, "Master Password Required", 
+            "Enter your login password to view this password:",
+            QLineEdit.Password
+        )
+        
+        if ok and master_password:
+            # Try to view password
+            result = self.storage.view_password(self.user_id, password_id, master_password)
+            
+            if result['success']:
+                # Show password in secure dialog
+                password_dialog = QMessageBox(self)
+                password_dialog.setWindowTitle("🔓 Stored Password")
+                password_dialog.setIcon(QMessageBox.Information)
+                
+                # Create formatted message
+                message = f"Site: {result.get('site_name', 'N/A')}\n"
+                message += f"Username: {result.get('username_for_site', 'N/A')}\n"
+                message += f"Password: {result['password']}\n\n"
+                message += "⚠️ Password will be hidden when you close this dialog."
+                
+                password_dialog.setText(message)
+                password_dialog.setStandardButtons(QMessageBox.Ok)
+                
+                # Auto-copy password to clipboard
+                from PySide6.QtWidgets import QApplication
+                clipboard = QApplication.clipboard()
+                clipboard.setText(result['password'])
+                
+                password_dialog.setInformativeText("Password has been copied to clipboard.")
+                password_dialog.exec()
+                
+            else:
+                # Show error or info message
+                if "recently generated" in result.get('error', '').lower():
+                    QMessageBox.information(self, "Password Viewing", result['error'])
+                else:
+                    QMessageBox.warning(self, "Cannot View Password", result.get('error', 'Unable to view password'))
+
+    def _copy_username(self, username: str):
+        """Copy username to clipboard"""
+        from PySide6.QtWidgets import QApplication
+        clipboard = QApplication.clipboard()
+        clipboard.setText(username)
+        QMessageBox.information(self, "Copied", f"Username '{username}' copied to clipboard!")
+
+    def _delete_password(self, password_id: int):
+        """Delete password with confirmation"""
+        reply = QMessageBox.question(
+            self, "Confirm Delete", 
+            "Are you sure you want to delete this password?\n\nThis action cannot be undone.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            if self.storage:
+                result = self.storage.delete_password(self.user_id, password_id)
+                if result['success']:
+                    QMessageBox.information(self, "Deleted", "Password deleted successfully!")
+                    self._refresh_passwords_list()
+                else:
+                    QMessageBox.critical(self, "Delete Error", result.get('error', 'Failed to delete password'))

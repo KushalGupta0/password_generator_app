@@ -1,63 +1,65 @@
 """
-Database Manager - Handles all database operations
-Manages SQLite database connections, queries, and data operations
+Database Manager with Encryption Support
+Handles all database operations for users and encrypted passwords
 """
 
 import sqlite3
 import logging
-import os
-from typing import List, Dict, Optional, Tuple, Any
+from typing import Optional, List, Dict, Any
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from .models import (
-    ALL_TABLES, CREATE_INDEXES, USER_QUERIES, PASSWORD_QUERIES,
-    SESSION_QUERIES, MAINTENANCE_QUERIES, UserModel, PasswordEntryModel,
-    SCHEMA_VERSION
+    ALL_TABLES, CREATE_INDEXES, CREATE_TRIGGERS, FOREIGN_KEY_CONSTRAINTS,
+    USER_QUERIES, PASSWORD_QUERIES, MAINTENANCE_QUERIES,
+    UserModel, PasswordEntryModel
 )
-from app_config import DATABASE_FILE, DATABASE_TIMEOUT
+from app_config import DATABASE_FILE
 
 
 class DatabaseManager:
     """Comprehensive database manager for password generator application"""
     
-    def __init__(self, db_path: str = None):
-        """Initialize database manager with optional custom database path"""
-        self.db_path = db_path or DATABASE_FILE
+    def __init__(self, db_path: str = DATABASE_FILE):
+        """Initialize database manager"""
+        self.db_path = db_path
         self.logger = logging.getLogger(__name__)
         self._setup_logging()
     
     def _setup_logging(self):
         """Configure logging for database operations"""
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-        )
+        self.logger.setLevel(logging.INFO)
+        if not self.logger.handlers:
+            handler = logging.StreamHandler()
+            formatter = logging.Formatter(
+                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+            )
+            handler.setFormatter(formatter)
+            self.logger.addHandler(handler)
     
     @contextmanager
     def get_connection(self):
-        """Context manager for database connections with proper error handling"""
+        """Context manager for database connections"""
         conn = None
         try:
-            conn = sqlite3.connect(
-                self.db_path, 
-                timeout=DATABASE_TIMEOUT,
-                check_same_thread=False
-            )
-            conn.row_factory = sqlite3.Row  # Enable column access by name
-            conn.execute("PRAGMA foreign_keys = ON;")  # Enable foreign key constraints
+            conn = sqlite3.connect(self.db_path, timeout=30.0)
+            conn.row_factory = sqlite3.Row  # Enable dict-like access
+            # Enable foreign key constraints
+            conn.execute("PRAGMA foreign_keys = ON")
             yield conn
-        except sqlite3.Error as e:
-            self.logger.error(f"Database error: {e}")
+        except Exception as e:
             if conn:
                 conn.rollback()
+            self.logger.error(f"Database error: {e}")
             raise
         finally:
             if conn:
                 conn.close()
     
+    # ==================== DATABASE INITIALIZATION ====================
+    
     def initialize_database(self) -> bool:
-        """Initialize database with all required tables and indexes"""
+        """Initialize database with all tables, indexes, and constraints"""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -66,22 +68,24 @@ class DatabaseManager:
                 for table_sql in ALL_TABLES:
                     cursor.execute(table_sql)
                 
-                # Create indexes for performance
+                # Create indexes
                 for index_sql in CREATE_INDEXES:
                     cursor.execute(index_sql)
                 
-                # Insert schema version
-                cursor.execute(
-                    "INSERT OR IGNORE INTO schema_version (version) VALUES (?)",
-                    (SCHEMA_VERSION,)
-                )
+                # Create triggers
+                for trigger_sql in CREATE_TRIGGERS:
+                    cursor.execute(trigger_sql)
+                
+                # Apply foreign key constraints
+                for constraint_sql in FOREIGN_KEY_CONSTRAINTS:
+                    cursor.execute(constraint_sql)
                 
                 conn.commit()
                 self.logger.info("Database initialized successfully")
                 return True
                 
         except Exception as e:
-            self.logger.error(f"Failed to initialize database: {e}")
+            self.logger.error(f"Database initialization failed: {e}")
             return False
     
     # ==================== USER MANAGEMENT ====================
@@ -91,14 +95,6 @@ class DatabaseManager:
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
-                
-                # Check if username already exists
-                cursor.execute(USER_QUERIES['check_username_exists'], (username,))
-                if cursor.fetchone()[0] > 0:
-                    self.logger.warning(f"Username already exists: {username}")
-                    return None
-                
-                # Insert new user
                 cursor.execute(
                     USER_QUERIES['insert_user'],
                     (username, email, hashed_password, salt)
@@ -106,15 +102,24 @@ class DatabaseManager:
                 
                 user_id = cursor.lastrowid
                 conn.commit()
+                
                 self.logger.info(f"User created successfully: {username} (ID: {user_id})")
                 return user_id
                 
+        except sqlite3.IntegrityError as e:
+            if "username" in str(e).lower():
+                self.logger.warning(f"Username already exists: {username}")
+            elif "email" in str(e).lower():
+                self.logger.warning(f"Email already exists: {email}")
+            else:
+                self.logger.error(f"User creation failed: {e}")
+            return None
         except Exception as e:
-            self.logger.error(f"Failed to create user {username}: {e}")
+            self.logger.error(f"User creation error: {e}")
             return None
     
-    def get_user_by_username(self, username: str) -> Optional[Dict]:
-        """Retrieve user by username for authentication"""
+    def get_user_by_username(self, username: str) -> Optional[Dict[str, Any]]:
+        """Get user by username (for authentication)"""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -130,7 +135,9 @@ class DatabaseManager:
                         'salt': row['salt'],
                         'failed_login_attempts': row['failed_login_attempts'],
                         'locked_until': row['locked_until'],
-                        'is_active': row['is_active']
+                        'is_active': row['is_active'],
+                        'created_at': row['created_at'],
+                        'last_login': row['last_login']
                     }
                 return None
                 
@@ -139,7 +146,7 @@ class DatabaseManager:
             return None
     
     def get_user_by_id(self, user_id: int) -> Optional[UserModel]:
-        """Retrieve user by ID"""
+        """Get user by ID (for user info display)"""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -151,14 +158,14 @@ class DatabaseManager:
                         user_id=row['user_id'],
                         username=row['username'],
                         email=row['email'],
-                        created_at=row['created_at'],
-                        last_login=row['last_login'],
-                        is_active=row['is_active']
+                        created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None,
+                        last_login=datetime.fromisoformat(row['last_login']) if row['last_login'] else None,
+                        is_active=bool(row['is_active'])
                     )
                 return None
                 
         except Exception as e:
-            self.logger.error(f"Failed to get user ID {user_id}: {e}")
+            self.logger.error(f"Failed to get user by ID {user_id}: {e}")
             return None
     
     def update_last_login(self, user_id: int) -> bool:
@@ -168,43 +175,44 @@ class DatabaseManager:
                 cursor = conn.cursor()
                 cursor.execute(USER_QUERIES['update_last_login'], (user_id,))
                 conn.commit()
-                return True
+                return cursor.rowcount > 0
                 
         except Exception as e:
             self.logger.error(f"Failed to update last login for user {user_id}: {e}")
             return False
     
     def increment_failed_attempts(self, user_id: int) -> bool:
-        """Increment failed login attempts and potentially lock account"""
+        """Increment failed login attempts for user"""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute(USER_QUERIES['update_failed_attempts'], (user_id,))
                 conn.commit()
-                return True
+                return cursor.rowcount > 0
                 
         except Exception as e:
-            self.logger.error(f"Failed to update failed attempts for user {user_id}: {e}")
+            self.logger.error(f"Failed to increment failed attempts for user {user_id}: {e}")
             return False
     
-    # ==================== PASSWORD STORAGE ====================
+    # ==================== PASSWORD MANAGEMENT ====================
     
     def save_password(self, user_id: int, username_for_site: str, site_name: str,
-                     site_url: str, hashed_password: str, password_length: int,
-                     complexity_used: str, notes: str = "") -> Optional[int]:
-        """Save a generated password to the database"""
+                     site_url: str, encrypted_password: str, encryption_salt: str,
+                     password_length: int, complexity_used: str, notes: str = "") -> Optional[int]:
+        """Save encrypted password to database"""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute(
                     PASSWORD_QUERIES['insert_password'],
-                    (user_id, username_for_site, site_name, site_url, 
-                     hashed_password, password_length, complexity_used, notes)
+                    (user_id, username_for_site, site_name, site_url,
+                     encrypted_password, encryption_salt, password_length, complexity_used, notes)
                 )
                 
                 password_id = cursor.lastrowid
                 conn.commit()
-                self.logger.info(f"Password saved for user {user_id}, site: {site_name}")
+                
+                self.logger.info(f"Password saved for user {user_id}, ID: {password_id}")
                 return password_id
                 
         except Exception as e:
@@ -212,7 +220,7 @@ class DatabaseManager:
             return None
     
     def get_user_passwords(self, user_id: int) -> List[PasswordEntryModel]:
-        """Retrieve all passwords for a specific user"""
+        """Get all active passwords for a user"""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -221,19 +229,19 @@ class DatabaseManager:
                 
                 passwords = []
                 for row in rows:
-                    password_entry = PasswordEntryModel(
+                    passwords.append(PasswordEntryModel(
                         password_id=row['password_id'],
-                        user_id=user_id,
+                        user_id=row['user_id'],
                         username_for_site=row['username_for_site'],
                         site_name=row['site_name'],
                         site_url=row['site_url'],
                         password_length=row['password_length'],
                         complexity_used=row['complexity_used'],
                         notes=row['notes'],
-                        created_at=row['created_at'],
-                        last_modified=row['last_modified']
-                    )
-                    passwords.append(password_entry)
+                        created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None,
+                        last_modified=datetime.fromisoformat(row['last_modified']) if row['last_modified'] else None,
+                        is_active=bool(row['is_active'])
+                    ))
                 
                 return passwords
                 
@@ -241,55 +249,80 @@ class DatabaseManager:
             self.logger.error(f"Failed to get passwords for user {user_id}: {e}")
             return []
     
-    def search_passwords(self, user_id: int, search_term: str) -> List[PasswordEntryModel]:
-        """Search user's passwords by site name, username, or notes"""
+    def get_password_by_id(self, password_id: int, user_id: int) -> Optional[Dict[str, Any]]:
+        """Get encrypted password entry by ID (for decryption)"""
         try:
-            search_pattern = f"%{search_term}%"
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(PASSWORD_QUERIES['get_password_by_id'], (password_id, user_id))
+                row = cursor.fetchone()
+                
+                if row:
+                    return {
+                        'password_id': row['password_id'],
+                        'user_id': row['user_id'],
+                        'username_for_site': row['username_for_site'],
+                        'site_name': row['site_name'],
+                        'site_url': row['site_url'],
+                        'encrypted_password': row['encrypted_password'],
+                        'encryption_salt': row['encryption_salt'],
+                        'password_length': row['password_length'],
+                        'complexity_used': row['complexity_used'],
+                        'notes': row['notes'],
+                        'created_at': row['created_at'],
+                        'last_modified': row['last_modified']
+                    }
+                return None
+                
+        except Exception as e:
+            self.logger.error(f"Failed to get password {password_id}: {e}")
+            return None
+    
+    def search_passwords(self, user_id: int, keyword: str) -> List[PasswordEntryModel]:
+        """Search passwords by keyword in site name, username, or notes"""
+        try:
+            search_term = f"%{keyword}%"
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute(
                     PASSWORD_QUERIES['search_passwords'],
-                    (user_id, search_pattern, search_pattern, search_pattern)
+                    (user_id, search_term, search_term, search_term)
                 )
                 rows = cursor.fetchall()
                 
-                passwords = []
+                results = []
                 for row in rows:
-                    password_entry = PasswordEntryModel(
+                    results.append(PasswordEntryModel(
                         password_id=row['password_id'],
-                        user_id=user_id,
+                        user_id=row['user_id'],
                         username_for_site=row['username_for_site'],
                         site_name=row['site_name'],
                         site_url=row['site_url'],
                         password_length=row['password_length'],
                         complexity_used=row['complexity_used'],
                         notes=row['notes'],
-                        created_at=row['created_at']
-                    )
-                    passwords.append(password_entry)
+                        created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None,
+                        last_modified=datetime.fromisoformat(row['last_modified']) if row['last_modified'] else None,
+                        is_active=bool(row['is_active'])
+                    ))
                 
-                return passwords
+                return results
                 
         except Exception as e:
-            self.logger.error(f"Failed to search passwords for user {user_id}: {e}")
+            self.logger.error(f"Password search failed for user {user_id}: {e}")
             return []
     
     def delete_password(self, user_id: int, password_id: int) -> bool:
-        """Soft delete a stored password"""
+        """Soft delete a password entry"""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute(
-                    PASSWORD_QUERIES['delete_password'],
-                    (password_id, user_id)
-                )
-                
-                success = cursor.rowcount > 0
+                cursor.execute(PASSWORD_QUERIES['delete_password'], (password_id, user_id))
                 conn.commit()
                 
+                success = cursor.rowcount > 0
                 if success:
                     self.logger.info(f"Password {password_id} deleted for user {user_id}")
-                
                 return success
                 
         except Exception as e:
@@ -297,78 +330,31 @@ class DatabaseManager:
             return False
     
     def get_password_count(self, user_id: int) -> int:
-        """Get total count of stored passwords for user"""
+        """Get count of active passwords for a user"""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute(PASSWORD_QUERIES['count_user_passwords'], (user_id,))
-                return cursor.fetchone()[0]
+                count = cursor.fetchone()[0]
+                return count
                 
         except Exception as e:
-            self.logger.error(f"Failed to get password count for user {user_id}: {e}")
+            self.logger.error(f"Failed to count passwords for user {user_id}: {e}")
             return 0
     
     # ==================== DATABASE MAINTENANCE ====================
     
-    def cleanup_expired_sessions(self) -> bool:
-        """Remove expired sessions from database"""
-        try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(SESSION_QUERIES['cleanup_expired_sessions'])
-                removed_count = cursor.rowcount
-                conn.commit()
-                
-                if removed_count > 0:
-                    self.logger.info(f"Cleaned up {removed_count} expired sessions")
-                
-                return True
-                
-        except Exception as e:
-            self.logger.error(f"Failed to cleanup expired sessions: {e}")
-            return False
-    
     def vacuum_database(self) -> bool:
-        """Optimize database by reclaiming space"""
+        """Optimize database by running VACUUM"""
         try:
             with self.get_connection() as conn:
                 conn.execute(MAINTENANCE_QUERIES['vacuum_database'])
-                self.logger.info("Database vacuumed successfully")
+                self.logger.info("Database vacuum completed")
                 return True
                 
         except Exception as e:
-            self.logger.error(f"Failed to vacuum database: {e}")
+            self.logger.error(f"Database vacuum failed: {e}")
             return False
-    
-    def get_database_stats(self) -> Dict[str, Any]:
-        """Get database statistics and health information"""
-        try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-                
-                # Get database size
-                cursor.execute(MAINTENANCE_QUERIES['get_database_size'])
-                size_result = cursor.fetchone()
-                db_size = size_result[0] if size_result else 0
-                
-                # Get table counts
-                cursor.execute("SELECT COUNT(*) FROM users WHERE is_active = 1")
-                user_count = cursor.fetchone()[0]
-                
-                cursor.execute("SELECT COUNT(*) FROM stored_passwords WHERE is_active = 1")
-                password_count = cursor.fetchone()[0]
-                
-                return {
-                    'database_size_bytes': db_size,
-                    'active_users': user_count,
-                    'stored_passwords': password_count,
-                    'database_path': self.db_path,
-                    'last_checked': datetime.now().isoformat()
-                }
-                
-        except Exception as e:
-            self.logger.error(f"Failed to get database stats: {e}")
-            return {}
     
     def check_database_integrity(self) -> bool:
         """Check database integrity"""
@@ -378,14 +364,31 @@ class DatabaseManager:
                 cursor.execute(MAINTENANCE_QUERIES['check_integrity'])
                 result = cursor.fetchone()[0]
                 
-                is_healthy = result == "ok"
-                if is_healthy:
+                if result == "ok":
                     self.logger.info("Database integrity check passed")
+                    return True
                 else:
-                    self.logger.error(f"Database integrity check failed: {result}")
+                    self.logger.warning(f"Database integrity issues: {result}")
+                    return False
+                    
+        except Exception as e:
+            self.logger.error(f"Database integrity check failed: {e}")
+            return False
+    
+    def get_database_stats(self) -> Dict[str, Any]:
+        """Get database statistics"""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(MAINTENANCE_QUERIES['get_user_stats'])
+                stats = cursor.fetchone()
                 
-                return is_healthy
+                return {
+                    'total_users': stats['total_users'] or 0,
+                    'total_passwords': stats['total_passwords'] or 0,
+                    'avg_password_length': round(stats['avg_password_length'] or 0, 2)
+                }
                 
         except Exception as e:
-            self.logger.error(f"Failed to check database integrity: {e}")
-            return False
+            self.logger.error(f"Failed to get database stats: {e}")
+            return {'total_users': 0, 'total_passwords': 0, 'avg_password_length': 0}
