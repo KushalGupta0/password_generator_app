@@ -107,4 +107,19 @@ class LightThemeManager:
             font-size: 14px;
             spacing: 8px;
         }
+        /* Logout Button Styling */
+        QPushButton#logout {
+            background-color: #dc3545;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-weight: bold;
+            padding: 8px 16px;
+        }
+        QPushButton#logout:hover {
+            background-color: #c82333;
+        }
+        QPushButton#logout:pressed {
+            background-color: #bd2130;
+        }
         """
